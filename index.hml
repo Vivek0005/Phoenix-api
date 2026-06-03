@@ -1,93 +1,185 @@
-Okay perfect. Clean slate. Let me lay out everything.
+Perfect. I have everything. Let me build it all from scratch now.
 
 ---
 
-## High Level Picture
+## Final Folder Structure
 
 ```
-You manually copy token from Swagger
-            ↓
-Paste it when triggering GitHub Actions
-            ↓
-GitHub Actions passes it as env variable
-            ↓
-Test reads token from env variable
-            ↓
-RestAssured fires real request to hosted API
-with Bearer token in header
-            ↓
-Captures actual response
-            ↓
-Compares with expected-response.json
-            ↓
-PASS / FAIL → report published
+.
+├── .github
+│   └── workflows
+│       ├── ci.yml          ← existing, untouched
+│       └── nrt.yml         ← new
+├── .mvn
+├── src
+│   ├── main
+│   │   ├── java
+│   │   │   └── com/example/gh_actions_demo1/
+│   │   │       └── GhActionsDemo1Application.java
+│   │   └── resources
+│   │       └── application.properties
+│   └── test
+│       ├── java
+│       │   └── com/example/gh_actions_demo1/
+│       │       └── nrt/
+│       │           └── NrtEngine.java
+│       └── resources
+│           └── nrt/
+│               └── currencyApi/
+│                   ├── request.json
+│                   └── expected-response.json
+├── pom.xml
+└── mvnw / mvnw.cmd
+```
+
+Everything else — `UserService`, `UserIT`, `UserController`, `User.java` — removed. They were only for the RBAC demo. Clean slate.
+
+---
+
+## File 1 — `pom.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.example</groupId>
+    <artifactId>gh-actions-demo1</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <dependencies>
+
+        <!-- Spring Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            RestAssured
+            Used to fire real HTTP requests in tests.
+            Cleaner than HttpClient or OkHttp for API testing.
+        -->
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <version>5.4.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            JSONAssert
+            Used to compare actual vs expected JSON responses.
+            Supports STRICT, LENIENT modes out of the box.
+        -->
+        <dependency>
+            <groupId>org.skyscreamer</groupId>
+            <artifactId>jsonassert</artifactId>
+            <version>1.5.1</version>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <!--
+                Surefire — runs unit tests
+                NrtEngine.java is picked up here
+                because it ends in Test (no, we name
+                it differently — see note below)
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                        Exclude NrtEngine from normal test runs.
+                        NRT should only run when explicitly triggered.
+                        Not during every mvn test.
+                    -->
+                    <excludes>
+                        <exclude>**/nrt/**</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!--
+                Failsafe — runs integration tests (*IT.java)
+                Not used for NRT but kept for future use
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Spring Boot -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+        </plugins>
+    </build>
+
+</project>
 ```
 
 ---
 
-## Complete File Structure
+## File 2 — `GhActionsDemo1Application.java`
 
-```
-your-project/
-  src/
-    test/
-      java/
-        com/example/gh_actions_demo1/
-          nrt/
-            NrtEngine.java          ← the engine
-      resources/
-        nrt/
-          currencyApi/
-            request.json
-            expected-response.json
-  .github/
-    workflows/
-      nrt.yml                       ← github actions
-```
+```java
+package com.example.gh_actions_demo1;
 
----
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-## File 1 — `request.json`
-
-```json
-{
-  "_comment": "NRT request definition for currency API",
-
-  "method": "GET",
-
-  "endpoint": "/currency",
-
-  "query_params": {
-    "sortBy": "ccyCode",
-    "sortingOrder": "asc"
-  },
-
-  "request_body": {}
+// Main entry point of the Spring Boot application
+// NrtEngine does NOT start this — it hits an external hosted API
+@SpringBootApplication
+public class GhActionsDemo1Application {
+    public static void main(String[] args) {
+        SpringApplication.run(GhActionsDemo1Application.class, args);
+    }
 }
 ```
-
----
-
-## File 2 — `expected-response.json`
-
-```json
-{
-  "_comment": "Expected response contract for currency API",
-
-  "expectedStatus": 200,
-
-  "validation": {
-    "mode": "IGNORE",
-    "fields": ["timestamp"]
-  },
-
-  "expectedResponse": {
-    "data": []
-  }
-}
-```
-
-Fill `expectedResponse` with whatever the actual currency API returns. Copy it from Swagger response.
 
 ---
 
@@ -114,28 +206,43 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /*
+ * ═══════════════════════════════════════════════════════
  * NrtEngine — Non Regression Test Engine
+ * ═══════════════════════════════════════════════════════
  *
- * HOW IT WORKS:
- * 1. Reads request.json        → knows what to send
- * 2. Reads expected-response.json → knows what to expect
- * 3. Reads AUTH_TOKEN from env → knows how to authenticate
- * 4. Reads BASE_URL from env   → knows which environment to hit
- * 5. Fires the real HTTP request
- * 6. Compares actual vs expected using the validation mode
+ * WHAT IT DOES:
+ * Fires a real HTTP request to a hosted API and compares
+ * the actual response against a stored expected response.
+ * If anything changed — status code, fields, values —
+ * the test fails and tells you exactly what regressed.
  *
- * TO RUN LOCALLY:
- *   export AUTH_TOKEN=your_token_here
- *   export BASE_URL=https://your-uat-url.com
- *   ./mvnw test -Dtest=NrtEngine
+ * HOW TO RUN LOCALLY:
+ *   export AUTH_TOKEN=your_bearer_token_from_swagger
+ *   export BASE_URL=https://your-uat-server.com
+ *   mvn test -Dtest=NrtEngine -Dsurefire.failIfNoSpecifiedTests=false
  *
- * TO RUN VIA GITHUB ACTIONS:
- *   Trigger the workflow manually, paste token when prompted.
+ * HOW IT RUNS IN CI:
+ *   GitHub Actions triggers nrt.yml manually.
+ *   You paste the token and base URL as inputs.
+ *   They get passed as env variables to this test.
+ *
+ * FILE STRUCTURE:
+ *   src/test/resources/nrt/
+ *     currencyApi/
+ *       request.json           ← what to send
+ *       expected-response.json ← what to expect back
+ *
+ * VALIDATION MODES (set in expected-response.json):
+ *   STRICT   → every field must match exactly
+ *   LENIENT  → expected fields must match, extras in actual = OK
+ *   IGNORE   → remove listed fields, compare rest leniently
+ *   CONTAINS → only check the listed fields, ignore everything else
+ * ═══════════════════════════════════════════════════════
  */
 
-// We are NOT using @SpringBootTest with RANDOM_PORT here
-// because we are hitting a REAL hosted API, not starting
-// our own server. We just need the test runner to execute.
+// @SpringBootTest is needed to use JUnit in a Spring project
+// We are NOT starting our own server here —
+// we are hitting a real external hosted API
 @SpringBootTest
 public class NrtEngine {
 
@@ -147,76 +254,130 @@ public class NrtEngine {
     @Test
     void run_currencyApi_nrt() throws Exception {
 
-        // ── STEP 1: READ ENVIRONMENT VARIABLES ──────────────────────
-        // These come from GitHub Actions secrets/inputs at runtime
-        // Locally you set them via: export AUTH_TOKEN=xxx
-
+        // ── STEP 1: READ ENV VARIABLES ───────────────────────────────
+        //
+        // AUTH_TOKEN → Bearer token copied from Swagger
+        // BASE_URL   → The hosted API server URL
+        //
+        // These are injected by GitHub Actions as env variables.
+        // Locally you set them with:
+        //   export AUTH_TOKEN=eyJ...
+        //   export BASE_URL=https://uat.server.com
+        //
         String authToken = System.getenv("AUTH_TOKEN");
         String baseUrl   = System.getenv("BASE_URL");
 
-        // Fail immediately with clear message if env vars are missing
+        // Edge case: env variables not set at all
+        // Fail immediately with a clear message instead of
+        // a confusing NullPointerException 10 lines later
         assertNotNull(authToken,
-            "AUTH_TOKEN environment variable is not set. " +
-            "Set it locally or pass it in GitHub Actions.");
+            "\n[NRT ERROR] AUTH_TOKEN environment variable is not set.\n" +
+            "Locally: export AUTH_TOKEN=your_token\n" +
+            "CI: pass it as workflow input.");
+
         assertNotNull(baseUrl,
-            "BASE_URL environment variable is not set. " +
-            "Example: https://your-uat-server.com");
+            "\n[NRT ERROR] BASE_URL environment variable is not set.\n" +
+            "Locally: export BASE_URL=https://your-server.com\n" +
+            "CI: pass it as workflow input.");
+
+        // Edge case: env variables set but empty strings
+        assertFalse(authToken.isBlank(),
+            "[NRT ERROR] AUTH_TOKEN is set but empty.");
+        assertFalse(baseUrl.isBlank(),
+            "[NRT ERROR] BASE_URL is set but empty.");
 
         // ── STEP 2: LOAD JSON FILES ──────────────────────────────────
-        // Each API flow has its own folder with 2 files
+        //
+        // Each API flow lives in its own folder.
+        // Two files per flow — request.json and expected-response.json
+        //
         String flowPath = NRT_BASE + "currencyApi/";
 
         File requestFile  = new File(flowPath + "request.json");
         File expectedFile = new File(flowPath + "expected-response.json");
 
-        // Guard: if files don't exist, fail with clear message
+        // Edge case: someone forgot to create the files
         assertTrue(requestFile.exists(),
-            "Missing file: " + flowPath + "request.json");
+            "[NRT ERROR] Missing file: " + flowPath + "request.json");
         assertTrue(expectedFile.exists(),
-            "Missing file: " + flowPath + "expected-response.json");
+            "[NRT ERROR] Missing file: " +
+            flowPath + "expected-response.json");
 
-        // Parse both files into JsonNode (think of it as a JSON object)
+        // Parse files into JsonNode so we can navigate fields
         JsonNode requestJson  = mapper.readTree(requestFile);
         JsonNode expectedJson = mapper.readTree(expectedFile);
 
+        // Edge case: files exist but are empty or malformed JSON
+        assertNotNull(requestJson,
+            "[NRT ERROR] request.json is empty or invalid JSON.");
+        assertNotNull(expectedJson,
+            "[NRT ERROR] expected-response.json is empty or invalid JSON.");
+
         // ── STEP 3: PARSE REQUEST DETAILS ───────────────────────────
-        // Pull out method and endpoint from request.json
+        //
+        // Pull method and endpoint from request.json
+        // method   → GET, POST, PUT, DELETE, PATCH
+        // endpoint → /currency
+        // fullUrl  → https://uat.server.com/currency
+        //
+        // Edge case: method or endpoint missing in request.json
+        assertTrue(requestJson.has("method"),
+            "[NRT ERROR] 'method' field missing in request.json");
+        assertTrue(requestJson.has("endpoint"),
+            "[NRT ERROR] 'endpoint' field missing in request.json");
+
         String method   = requestJson.get("method").asText().toUpperCase();
         String endpoint = requestJson.get("endpoint").asText();
         String fullUrl  = baseUrl + endpoint;
 
-        System.out.println(">> Firing: " + method + " " + fullUrl);
+        System.out.println("\n========== NRT ENGINE START ==========");
+        System.out.println(">> Flow    : currencyApi");
+        System.out.println(">> Method  : " + method);
+        System.out.println(">> URL     : " + fullUrl);
+        System.out.println(">> Base URL: " + baseUrl);
 
-        // ── STEP 4: BUILD THE HTTP REQUEST ───────────────────────────
-        // Start building the RestAssured request
+        // ── STEP 4: BUILD HTTP REQUEST ───────────────────────────────
+        //
+        // RestAssured builds the HTTP request.
+        // We always attach the Bearer token from env variable.
+        //
         RequestSpecification spec = RestAssured.given()
             .contentType("application/json")
-            // Attach the Bearer token from env variable
+            // Bearer token from Swagger, passed via env variable
             .header("Authorization", "Bearer " + authToken);
 
-        // Add query params if they exist in request.json
-        // e.g. ?sortBy=ccyCode&sortingOrder=asc
-        if (requestJson.has("query_params")) {
+        // Add query params if present in request.json
+        // e.g. ?sortBy=ccyCode&sortOrder=asc
+        if (requestJson.has("query_params") &&
+            !requestJson.get("query_params").isEmpty()) {
+
             Iterator<Map.Entry<String, JsonNode>> params =
                 requestJson.get("query_params").fields();
+
             while (params.hasNext()) {
                 Map.Entry<String, JsonNode> param = params.next();
                 spec = spec.queryParam(
                     param.getKey(),
                     param.getValue().asText()
                 );
+                System.out.println(">> Param   : " +
+                    param.getKey() + "=" + param.getValue().asText());
             }
         }
 
         // Add request body if present and not empty
-        // For GET requests this will be empty {}
+        // GET requests will have empty {} — we skip those
         JsonNode requestBody = requestJson.get("request_body");
         if (requestBody != null && !requestBody.isEmpty()) {
             spec = spec.body(requestBody.toString());
+            System.out.println(">> Body    : " + requestBody);
         }
 
         // ── STEP 5: FIRE THE REQUEST ─────────────────────────────────
-        // Switch on HTTP method and fire accordingly
+        //
+        // Switch on HTTP method and fire accordingly.
+        // Edge case: unsupported method in request.json
+        //
         Response response = switch (method) {
             case "GET"    -> spec.get(fullUrl);
             case "POST"   -> spec.post(fullUrl);
@@ -224,54 +385,86 @@ public class NrtEngine {
             case "DELETE" -> spec.delete(fullUrl);
             case "PATCH"  -> spec.patch(fullUrl);
             default -> throw new IllegalArgumentException(
-                "Unsupported HTTP method in request.json: " + method);
+                "[NRT ERROR] Unsupported HTTP method in request.json: "
+                + method +
+                ". Allowed: GET, POST, PUT, DELETE, PATCH");
         };
 
-        System.out.println(">> Response status: " + response.getStatusCode());
-        System.out.println(">> Response body: " +
-            response.getBody().asString());
+        System.out.println(">> Status  : " + response.getStatusCode());
+        System.out.println(">> Response: " + response.getBody().asString());
 
         // ── STEP 6: CHECK STATUS CODE ────────────────────────────────
-        // Read expectedStatus from expected-response.json
+        //
+        // Check the HTTP status code first before touching the body.
+        // If status is wrong, no point comparing the body.
+        // Edge case: expectedStatus missing from expected-response.json
+        //
+        assertTrue(expectedJson.has("expectedStatus"),
+            "[NRT ERROR] 'expectedStatus' missing in " +
+            "expected-response.json");
+
         int expectedStatus = expectedJson.get("expectedStatus").asInt();
 
         assertEquals(
             expectedStatus,
             response.getStatusCode(),
-            // On failure, print the actual body so you know WHY it failed
-            "Status code mismatch. Actual response body was: " +
-            response.getBody().asString()
+            // On failure, print the full body so you know WHY it failed
+            "\n[NRT FAIL] Status code mismatch." +
+            "\nExpected : " + expectedStatus +
+            "\nActual   : " + response.getStatusCode() +
+            "\nBody     : " + response.getBody().asString()
         );
 
         // ── STEP 7: PARSE ACTUAL RESPONSE ────────────────────────────
+        //
+        // Parse the response body as JSON.
+        // Edge case: API returns HTML error page or plain text
+        // instead of JSON — we catch and fail clearly.
+        //
         String responseBody = response.getBody().asString();
         ObjectNode actual;
 
         try {
-            // Try to parse response as JSON
             actual = (ObjectNode) mapper.readTree(responseBody);
         } catch (Exception e) {
-            // If it's not JSON (HTML error page, plain text etc.)
-            // fail with the raw response so you can debug
-            fail("Response is not valid JSON. Raw response was: "
-                + responseBody);
-            return; // compiler needs this after fail()
+            fail("\n[NRT FAIL] Response is not valid JSON.\n" +
+                 "Raw response was:\n" + responseBody);
+            return; // compiler needs this — fail() throws but
+                    // compiler doesn't know that
         }
 
         // ── STEP 8: APPLY VALIDATION MODE ───────────────────────────
+        //
+        // Read validation config from expected-response.json
+        // Edge cases: validation block missing, mode missing,
+        // unknown mode value
+        //
+        assertTrue(expectedJson.has("validation"),
+            "[NRT ERROR] 'validation' block missing in " +
+            "expected-response.json");
+        assertTrue(expectedJson.has("expectedResponse"),
+            "[NRT ERROR] 'expectedResponse' block missing in " +
+            "expected-response.json");
+
         JsonNode validation   = expectedJson.get("validation");
+
+        assertTrue(validation.has("mode"),
+            "[NRT ERROR] 'mode' missing inside 'validation' block");
+
         String mode           = validation.get("mode").asText().toUpperCase();
         JsonNode fields       = validation.get("fields");
         JsonNode expectedBody = expectedJson.get("expectedResponse");
 
-        System.out.println(">> Validation mode: " + mode);
+        System.out.println(">> Mode    : " + mode);
 
         switch (mode) {
 
             case "STRICT" -> {
-                // Every single field must match exactly.
-                // Extra fields in actual = FAIL
-                // Field order matters
+                // Every field must match exactly.
+                // Extra fields in actual = FAIL.
+                // Field order matters.
+                // Use when API contract is fully locked down.
+                System.out.println(">> Comparing with STRICT mode");
                 JSONAssert.assertEquals(
                     expectedBody.toString(),
                     actual.toString(),
@@ -281,8 +474,10 @@ public class NrtEngine {
 
             case "LENIENT" -> {
                 // All fields in expected must match.
-                // Extra fields in actual = OK
-                // Field order doesn't matter
+                // Extra fields in actual = OK.
+                // Field order doesn't matter.
+                // Use when API returns extra metadata you don't care about.
+                System.out.println(">> Comparing with LENIENT mode");
                 JSONAssert.assertEquals(
                     expectedBody.toString(),
                     actual.toString(),
@@ -291,16 +486,20 @@ public class NrtEngine {
             }
 
             case "IGNORE" -> {
-                // Remove the listed dynamic fields from actual
-                // (e.g. timestamp, id change every request)
-                // Then compare the rest leniently
-                if (fields != null) {
+                // Remove listed dynamic fields from actual before comparing.
+                // Use for fields like timestamp, id that change every call.
+                // Compare the rest leniently.
+                System.out.println(">> Comparing with IGNORE mode");
+
+                if (fields != null && !fields.isEmpty()) {
                     fields.forEach(f -> {
                         String fieldName = f.asText();
                         actual.remove(fieldName);
-                        System.out.println(">> Ignoring field: " + fieldName);
+                        System.out.println(
+                            ">> Ignoring field: " + fieldName);
                     });
                 }
+
                 JSONAssert.assertEquals(
                     expectedBody.toString(),
                     actual.toString(),
@@ -309,329 +508,41 @@ public class NrtEngine {
             }
 
             case "CONTAINS" -> {
-                // Only check the specific fields listed in "fields"
-                // Everything else in actual is completely ignored
+                // Only check the specific fields listed in "fields".
+                // Everything else in actual is completely ignored.
+                // Use when you only care about a few key fields.
+                System.out.println(">> Comparing with CONTAINS mode");
+
+                // Edge case: fields array missing or empty for CONTAINS
+                assertNotNull(fields,
+                    "[NRT ERROR] CONTAINS mode requires 'fields' array " +
+                    "in validation block.");
+                assertFalse(fields.isEmpty(),
+                    "[NRT ERROR] CONTAINS mode 'fields' array is empty. " +
+                    "Add the fields you want to check.");
+
                 ObjectNode filteredActual   = mapper.createObjectNode();
                 ObjectNode filteredExpected = mapper.createObjectNode();
 
-                if (fields != null) {
-                    fields.forEach(f -> {
-                        String fieldName = f.asText();
-                        // Pick only listed fields from actual response
-                        if (actual.has(fieldName)) {
-                            filteredActual.set(fieldName,
-                                actual.get(fieldName));
-                        }
-                        // Pick only listed fields from expected
-                        if (expectedBody.has(fieldName)) {
-                            filteredExpected.set(fieldName,
-                                expectedBody.get(fieldName));
-                        }
-                    });
-                }
+                fields.forEach(f -> {
+                    String fieldName = f.asText();
+
+                    if (actual.has(fieldName)) {
+                        filteredActual.set(fieldName,
+                            actual.get(fieldName));
+                    } else {
+                        System.out.println(
+                            ">> WARNING: field '" + fieldName +
+                            "' listed in CONTAINS but not found in " +
+                            "actual response");
+                    }
+
+                    if (expectedBody.has(fieldName)) {
+                        filteredExpected.set(fieldName,
+                            expectedBody.get(fieldName));
+                    }
+                });
+
                 JSONAssert.assertEquals(
                     filteredExpected.toString(),
-                    filteredActual.toString(),
-                    JSONCompareMode.LENIENT
-                );
-            }
-
-            default -> throw new IllegalArgumentException(
-                "Unknown validation mode in expected-response.json: " + mode
-            );
-        }
-
-        System.out.println(">> NRT PASSED for currencyApi");
-    }
-}
-```
-
----
-
-## File 4 — `.github/workflows/nrt.yml`
-
-```yaml
-name: NRT - Non Regression Tests
-
-# workflow_dispatch means you trigger it MANUALLY from GitHub UI
-# and you can pass inputs (like the token) at trigger time
-on:
-  workflow_dispatch:
-    inputs:
-      auth_token:
-        description: 'Paste Bearer token from Swagger here'
-        required: true
-        type: string
-      base_url:
-        description: 'Target environment URL'
-        required: true
-        default: 'https://your-uat-server.com'
-        type: string
-
-jobs:
-  nrt:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v3
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Run NRT Engine
-        # Pass the inputs as environment variables
-        # The test reads them via System.getenv()
-        env:
-          AUTH_TOKEN: ${{ inputs.auth_token }}
-          BASE_URL: ${{ inputs.base_url }}
-        run: ./mvnw test -Dtest=NrtEngine
-
-      - name: Publish Test Report
-        # Always run this step even if tests fail
-        # So you always see the report
-        if: always()
-        uses: dorny/test-reporter@v1
-        with:
-          name: NRT Results
-          path: target/surefire-reports/*.xml
-          reporter: java-junit
-```
-
----
-
-## How To Trigger It
-
-```
-1. Go to your GitHub repo
-2. Actions tab
-3. "NRT - Non Regression Tests"
-4. "Run workflow" button
-5. Paste token from Swagger
-6. Paste UAT base URL
-7. Hit Run
-```
-
----
-
-## pom.xml Dependencies To Add
-
-```xml
-<!-- RestAssured - fires HTTP requests -->
-<dependency>
-    <groupId>io.rest-assured</groupId>
-    <artifactId>rest-assured</artifactId>
-    <scope>test</scope>
-</dependency>
-
-<!-- JSONAssert - smart JSON comparison -->
-<dependency>
-    <groupId>org.skyscreamer</groupId>
-    <artifactId>jsonassert</artifactId>
-    <scope>test</scope>
-</dependency>
-```
-
----
-
-## To Run Locally Before Pushing
-
-```bash
-export AUTH_TOKEN=eyJhbGci...your_token
-export BASE_URL=https://your-uat-server.com
-./mvnw test -Dtest=NrtEngine
-```
-
----
-
-Start with getting it running locally first. Copy the token from Swagger, set the env vars, run the command. Tell me what you get.
-
-
-
-
-
-
-
-  Okay stop. Let me answer your questions first before we touch anything.
-
----
-
-## Your Questions
-
-**"Does this file work for all request/response files?"**
-
-No. Right now it's hardcoded for one API — `currencyApi`. See this line:
-
-```java
-String flowPath = NRT_BASE + "currencyApi/";
-```
-
-It only looks in that one folder. Later when we make it dynamic it'll auto-discover all folders under `nrt/`. But for now — **one API, one folder, one test.**
-
-**"Is it only for one API?"**
-
-Yes. Intentionally. That's what we decided — prove it works for one, then scale. Don't change this yet.
-
----
-
-## What I Need From You
-
-Send me these 3 things and I'll give you everything ready to copy-paste:
-
-**1. The API spec**
-- Endpoint URL
-- Method (GET/POST etc.)
-- Query params if any
-- Request body if any
-- What the response looks like (copy from Swagger)
-
-**2. Photos of your existing workflow file**
-So I add the NRT job into it without breaking what's already there.
-
-**3. Base URL**
-The UAT/hosted server URL you'll be testing against.
-
-Send those and we'll get it done.
-
-
-
-  Good questions. Let me answer both clearly.
-
----
-
-## Question 1 — Scaling to All APIs
-
-Right now the engine has this hardcoded:
-```java
-String flowPath = NRT_BASE + "currencyApi/";
-```
-
-When we scale, we change it to **auto-discover all folders:**
-
-```
-nrt/
-  currencyApi/        ← picks this up automatically
-  createUser/         ← picks this up automatically
-  getAccounts/        ← picks this up automatically
-  deleteTransaction/  ← picks this up automatically
-```
-
-The engine loops through every folder, finds `request.json` and `expected-response.json`, and runs a test for each one. **You never touch the Java file again.** You only add new folders.
-
-We'll do this in iteration 2. Not now.
-
----
-
-## Question 2 — UAT vs DEV separately
-
-You're exactly right. The URL is the only thing that changes between environments. Everything else — the request, the expected response, the validation mode — stays the same.
-
-This is handled by just passing a different `BASE_URL` when you trigger the workflow:
-
-```
-DEV run:
-  BASE_URL = https://dev.your-server.com
-  AUTH_TOKEN = dev token from Swagger
-
-UAT run:
-  BASE_URL = https://uat.your-server.com
-  AUTH_TOKEN = uat token from Swagger
-```
-
-The workflow already handles this because `BASE_URL` is an input parameter you fill in manually when triggering. So same code, same JSON files, different environment = different run.
-
----
-
-## Summary
-
-```
-Scale to all APIs  → auto folder discovery, iteration 2
-Multi environment  → already handled, just change BASE_URL input
-JSON files         → never change regardless of environment
-Java engine        → never changes after iteration 2
-```
-
-Both concerns are already accounted for in the design. Now send me the API spec and workflow file photos.
-
-
-
-
-  Oh that's a really interesting use case. That's called **environment comparison** or **cross-environment NRT**.
-
----
-
-## What She Means
-
-Instead of comparing actual response against a static `expected-response.json` file —
-
-```
-Normal NRT:
-Actual response (UAT)  vs  expected-response.json (static file)
-```
-
-You compare **two live environments against each other:**
-
-```
-Cross-env NRT:
-Actual response (DEV)  vs  Actual response (PROD)
-```
-
----
-
-## Why This Is Powerful
-
-Real scenario:
-
-> "We deployed a fix to DEV. Does DEV now return the same thing as PROD?"
-
-Or:
-
-> "Before we deploy to PROD, does UAT match PROD exactly?"
-
-You're not comparing against a hardcoded expected value. You're comparing two live systems in real time.
-
----
-
-## How It Would Work
-
-```
-Engine fires same request to DEV
-          ↓
-Engine fires same request to PROD
-          ↓
-Compares both responses
-          ↓
-Any difference = regression flagged
-```
-
-Workflow would take two URLs as input:
-
-```yaml
-inputs:
-  env1_url:
-    description: 'First environment (e.g. DEV)'
-  env2_url:
-    description: 'Second environment (e.g. PROD)'
-  auth_token_env1:
-    description: 'Token for env1'
-  auth_token_env2:
-    description: 'Token for env2'
-```
-
----
-
-## Honest Take
-
-This is **iteration 3** territory. Don't think about it now.
-
-Order of things:
-```
-Iteration 1 (now)    → one API, static expected JSON, one env
-Iteration 2          → all APIs, auto-discover folders
-Iteration 3          → cross environment comparison
-```
-
-Your senior is just showing you where this can go. Focus on iteration 1 first. Send me the API spec.
+                    filteredActual.toString(
