@@ -100,7 +100,6 @@ jobs:
 
 ## File 2 — `nrt-runner.sh`
 
-```bash
 #!/bin/bash
 
 # ═══════════════════════════════════════════════════════════
@@ -156,6 +155,21 @@ print_divider() {
   echo "──────────────────────────────────────────"
 }
 
+# Print response body truncated to 20 lines
+print_response_body() {
+  local BODY=$1
+  local LINE_COUNT
+  LINE_COUNT=$(echo "$BODY" | wc -l)
+
+  if [ "$LINE_COUNT" -gt 20 ]; then
+    echo "   Response: (showing 20/$LINE_COUNT lines)"
+    echo "$BODY" | head -n 20
+    echo "   ... truncated"
+  else
+    echo "   Response: $BODY"
+  fi
+}
+
 # ── STEP 1: VALIDATE INPUTS ───────────────────────────────
 
 print_header "INPUT VALIDATION"
@@ -190,9 +204,21 @@ echo ">> Validating contract-service token..."
 CONTRACT_INFO=$(curl -s \
   --max-time $CURL_TIMEOUT \
   "${TOKENINFO_URL}?access_token=${AUTH_TOKEN_CONTRACT}")
+CURL_EXIT=$?
+
+# Curl failure handling
+if [ $CURL_EXIT -ne 0 ]; then
+  if [ $CURL_EXIT -eq 28 ]; then
+    echo "ERROR: tokeninfo request timed out for contract-service token"
+  else
+    echo "ERROR: Could not reach tokeninfo endpoint for contract-service token"
+    echo "curl exit code: $CURL_EXIT"
+  fi
+  exit 1
+fi
 
 if [ -z "$CONTRACT_INFO" ]; then
-  echo "ERROR: Could not reach tokeninfo endpoint for contract-service token"
+  echo "ERROR: tokeninfo returned empty response for contract-service token"
   exit 1
 fi
 
@@ -232,9 +258,21 @@ echo ">> Validating access-management token..."
 ACCESS_INFO=$(curl -s \
   --max-time $CURL_TIMEOUT \
   "${TOKENINFO_URL}?access_token=${AUTH_TOKEN_ACCESS}")
+CURL_EXIT=$?
+
+# Curl failure handling
+if [ $CURL_EXIT -ne 0 ]; then
+  if [ $CURL_EXIT -eq 28 ]; then
+    echo "ERROR: tokeninfo request timed out for access-management token"
+  else
+    echo "ERROR: Could not reach tokeninfo endpoint for access-management token"
+    echo "curl exit code: $CURL_EXIT"
+  fi
+  exit 1
+fi
 
 if [ -z "$ACCESS_INFO" ]; then
-  echo "ERROR: Could not reach tokeninfo endpoint for access-management token"
+  echo "ERROR: tokeninfo returned empty response for access-management token"
   exit 1
 fi
 
@@ -269,9 +307,12 @@ USER_INFO=$(curl -s \
   -H "accept: application/json" \
   -H "Authorization: Bearer $AUTH_TOKEN_ACCESS" \
   "${BASE_URL}/access-management-service/api/v1/users/${ENCODED_EMAIL}")
+CURL_EXIT=$?
 
-if [ -z "$USER_INFO" ]; then
-  echo "WARNING: Could not fetch user metadata. Continuing..."
+if [ $CURL_EXIT -ne 0 ]; then
+  echo "WARNING: Could not reach access-management service (exit: $CURL_EXIT). Continuing..."
+elif [ -z "$USER_INFO" ]; then
+  echo "WARNING: Empty response from access-management. Continuing..."
 elif ! echo "$USER_INFO" | jq . > /dev/null 2>&1; then
   echo "WARNING: User metadata response is not valid JSON. Continuing..."
 else
@@ -444,7 +485,7 @@ for SERVICE_DIR in testApi/*/; do
       continue
     fi
 
-    # Fire request
+    # ── Fire request ──────────────────────────────────────
     START_TIME=$(date +%s%3N)
 
     if [ -n "$BODY" ]; then
@@ -466,34 +507,53 @@ for SERVICE_DIR in testApi/*/; do
         -H "Authorization: Bearer $AUTH_TOKEN" \
         "$FULL_URL")
     fi
+    CURL_EXIT=$?
 
     END_TIME=$(date +%s%3N)
     RESPONSE_TIME=$((END_TIME - START_TIME))
 
+    # ── Curl failure handling ─────────────────────────────
+    if [ $CURL_EXIT -ne 0 ]; then
+      if [ $CURL_EXIT -eq 28 ]; then
+        CURL_ERROR="Request timed out after ${CURL_TIMEOUT}s"
+      else
+        CURL_ERROR="Network error or server unreachable (curl exit: $CURL_EXIT)"
+      fi
+      echo "   ERROR   : $CURL_ERROR"
+      echo "   RESULT  : FAIL ✗"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  $CURL_ERROR\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | ${RESPONSE_TIME}ms | $CURL_ERROR |"
+      continue
+    fi
+
+    # Split status and body
     ACTUAL_STATUS=$(echo "$RESPONSE" | tail -1)
     ACTUAL_BODY=$(echo "$RESPONSE" | head -n -1)
 
     echo "   Status  : $ACTUAL_STATUS (expected: $EXPECTED_STATUS)"
     echo "   Time    : ${RESPONSE_TIME}ms"
 
-    # Check status code
+    # Print truncated response body
+    print_response_body "$ACTUAL_BODY"
+
+    # ── Check status code ─────────────────────────────────
     if [ "$ACTUAL_STATUS" != "$EXPECTED_STATUS" ]; then
       echo "   RESULT  : FAIL ✗"
       FAILED=$((FAILED + 1))
       FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
       FAILED_DETAILS="${FAILED_DETAILS}  Status   : expected=$EXPECTED_STATUS actual=$ACTUAL_STATUS\n"
-      FAILED_DETAILS="${FAILED_DETAILS}  Body     : $ACTUAL_BODY\n"
       add_summary "| $TEST_NAME | ❌ FAIL | ${RESPONSE_TIME}ms | Status: expected=$EXPECTED_STATUS actual=$ACTUAL_STATUS |"
       continue
     fi
 
-    # Check valid JSON
+    # ── Check valid JSON ──────────────────────────────────
     if ! echo "$ACTUAL_BODY" | jq . > /dev/null 2>&1; then
       echo "   RESULT  : FAIL ✗ — response is not valid JSON"
       FAILED=$((FAILED + 1))
       FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
       FAILED_DETAILS="${FAILED_DETAILS}  Response is not valid JSON\n"
-      FAILED_DETAILS="${FAILED_DETAILS}  Raw: $ACTUAL_BODY\n"
       add_summary "| $TEST_NAME | ❌ FAIL | ${RESPONSE_TIME}ms | Response not valid JSON |"
       continue
     fi
@@ -626,7 +686,6 @@ if [ $FAILED -gt 0 ]; then
 fi
 
 exit $EXIT_CODE
-```
 
 ---
 
