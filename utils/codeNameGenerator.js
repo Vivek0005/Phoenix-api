@@ -17,755 +17,703 @@ function generateCodename() {
 module.exports = generateCodename;
 
 
+---- -++++ ------
 
----+++
-
-    Perfect. I have everything. Let me build it all from scratch now.
-
----
-
-## Final Folder Structure
-
-```
-.
-├── .github
-│   └── workflows
-│       ├── ci.yml          ← existing, untouched
-│       └── nrt.yml         ← new
-├── .mvn
-├── src
-│   ├── main
-│   │   ├── java
-│   │   │   └── com/example/gh_actions_demo1/
-│   │   │       └── GhActionsDemo1Application.java
-│   │   └── resources
-│   │       └── application.properties
-│   └── test
-│       ├── java
-│       │   └── com/example/gh_actions_demo1/
-│       │       └── nrt/
-│       │           └── NrtEngine.java
-│       └── resources
-│           └── nrt/
-│               └── currencyApi/
-│                   ├── request.json
-│                   └── expected-response.json
-├── pom.xml
-└── mvnw / mvnw.cmd
-```
-
-Everything else — `UserService`, `UserIT`, `UserController`, `User.java` — removed. They were only for the RBAC demo. Clean slate.
+    Here's everything clean and complete.
 
 ---
 
-## File 1 — `pom.xml`
+## Folder Structure To Create
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
-         https://maven.apache.org/xsd/maven-4.0.0.xsd">
-
-    <modelVersion>4.0.0</modelVersion>
-
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.5</version>
-        <relativePath/>
-    </parent>
-
-    <groupId>com.example</groupId>
-    <artifactId>gh-actions-demo1</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
-
-    <properties>
-        <java.version>17</java.version>
-    </properties>
-
-    <dependencies>
-
-        <!-- Spring Web -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-
-        <!-- Spring Test -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <!--
-            RestAssured
-            Used to fire real HTTP requests in tests.
-            Cleaner than HttpClient or OkHttp for API testing.
-        -->
-        <dependency>
-            <groupId>io.rest-assured</groupId>
-            <artifactId>rest-assured</artifactId>
-            <version>5.4.0</version>
-            <scope>test</scope>
-        </dependency>
-
-        <!--
-            JSONAssert
-            Used to compare actual vs expected JSON responses.
-            Supports STRICT, LENIENT modes out of the box.
-        -->
-        <dependency>
-            <groupId>org.skyscreamer</groupId>
-            <artifactId>jsonassert</artifactId>
-            <version>1.5.1</version>
-            <scope>test</scope>
-        </dependency>
-
-    </dependencies>
-
-    <build>
-        <plugins>
-
-            <!--
-                Surefire — runs unit tests
-                NrtEngine.java is picked up here
-                because it ends in Test (no, we name
-                it differently — see note below)
-            -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <!--
-                        Exclude NrtEngine from normal test runs.
-                        NRT should only run when explicitly triggered.
-                        Not during every mvn test.
-                    -->
-                    <excludes>
-                        <exclude>**/nrt/**</exclude>
-                    </excludes>
-                </configuration>
-            </plugin>
-
-            <!--
-                Failsafe — runs integration tests (*IT.java)
-                Not used for NRT but kept for future use
-            -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-failsafe-plugin</artifactId>
-                <configuration>
-                    <includes>
-                        <include>**/*IT.java</include>
-                    </includes>
-                </configuration>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>integration-test</goal>
-                            <goal>verify</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- Spring Boot -->
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-
-        </plugins>
-    </build>
-
-</project>
+```
+bos-nrt/
+├── .github/
+│   └── workflows/
+│       └── nrt.yml
+├── testApi/
+│   └── bos-contract-service/
+│       ├── request/
+│       │   ├── healthCheck_request.json
+│       │   └── currencyApi_request.json
+│       └── response/
+│           ├── healthCheck_response.json
+│           └── currencyApi_response.json
+├── nrt-runner.sh
+└── README.md
 ```
 
 ---
 
-## File 2 — `GhActionsDemo1Application.java`
-
-```java
-package com.example.gh_actions_demo1;
-
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-// Main entry point of the Spring Boot application
-// NrtEngine does NOT start this — it hits an external hosted API
-@SpringBootApplication
-public class GhActionsDemo1Application {
-    public static void main(String[] args) {
-        SpringApplication.run(GhActionsDemo1Application.class, args);
-    }
-}
-```
-
----
-
-## File 3 — `NrtEngine.java`
-
-```java
-package com.example.gh_actions_demo1.nrt;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.restassured.RestAssured;
-import io.restassured.response.Response;
-import io.restassured.specification.RequestSpecification;
-import org.junit.jupiter.api.Test;
-import org.skyscreamer.jsonassert.JSONAssert;
-import org.skyscreamer.jsonassert.JSONCompareMode;
-import org.springframework.boot.test.context.SpringBootTest;
-
-import java.io.File;
-import java.util.Iterator;
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.*;
-
-/*
- * ═══════════════════════════════════════════════════════
- * NrtEngine — Non Regression Test Engine
- * ═══════════════════════════════════════════════════════
- *
- * WHAT IT DOES:
- * Fires a real HTTP request to a hosted API and compares
- * the actual response against a stored expected response.
- * If anything changed — status code, fields, values —
- * the test fails and tells you exactly what regressed.
- *
- * HOW TO RUN LOCALLY:
- *   export AUTH_TOKEN=your_bearer_token_from_swagger
- *   export BASE_URL=https://your-uat-server.com
- *   mvn test -Dtest=NrtEngine -Dsurefire.failIfNoSpecifiedTests=false
- *
- * HOW IT RUNS IN CI:
- *   GitHub Actions triggers nrt.yml manually.
- *   You paste the token and base URL as inputs.
- *   They get passed as env variables to this test.
- *
- * FILE STRUCTURE:
- *   src/test/resources/nrt/
- *     currencyApi/
- *       request.json           ← what to send
- *       expected-response.json ← what to expect back
- *
- * VALIDATION MODES (set in expected-response.json):
- *   STRICT   → every field must match exactly
- *   LENIENT  → expected fields must match, extras in actual = OK
- *   IGNORE   → remove listed fields, compare rest leniently
- *   CONTAINS → only check the listed fields, ignore everything else
- * ═══════════════════════════════════════════════════════
- */
-
-// @SpringBootTest is needed to use JUnit in a Spring project
-// We are NOT starting our own server here —
-// we are hitting a real external hosted API
-@SpringBootTest
-public class NrtEngine {
-
-    private final ObjectMapper mapper = new ObjectMapper();
-
-    // Base path where all NRT flow folders live
-    private final String NRT_BASE = "src/test/resources/nrt/";
-
-    @Test
-    void run_currencyApi_nrt() throws Exception {
-
-        // ── STEP 1: READ ENV VARIABLES ───────────────────────────────
-        //
-        // AUTH_TOKEN → Bearer token copied from Swagger
-        // BASE_URL   → The hosted API server URL
-        //
-        // These are injected by GitHub Actions as env variables.
-        // Locally you set them with:
-        //   export AUTH_TOKEN=eyJ...
-        //   export BASE_URL=https://uat.server.com
-        //
-        String authToken = System.getenv("AUTH_TOKEN");
-        String baseUrl   = System.getenv("BASE_URL");
-
-        // Edge case: env variables not set at all
-        // Fail immediately with a clear message instead of
-        // a confusing NullPointerException 10 lines later
-        assertNotNull(authToken,
-            "\n[NRT ERROR] AUTH_TOKEN environment variable is not set.\n" +
-            "Locally: export AUTH_TOKEN=your_token\n" +
-            "CI: pass it as workflow input.");
-
-        assertNotNull(baseUrl,
-            "\n[NRT ERROR] BASE_URL environment variable is not set.\n" +
-            "Locally: export BASE_URL=https://your-server.com\n" +
-            "CI: pass it as workflow input.");
-
-        // Edge case: env variables set but empty strings
-        assertFalse(authToken.isBlank(),
-            "[NRT ERROR] AUTH_TOKEN is set but empty.");
-        assertFalse(baseUrl.isBlank(),
-            "[NRT ERROR] BASE_URL is set but empty.");
-
-        // ── STEP 2: LOAD JSON FILES ──────────────────────────────────
-        //
-        // Each API flow lives in its own folder.
-        // Two files per flow — request.json and expected-response.json
-        //
-        String flowPath = NRT_BASE + "currencyApi/";
-
-        File requestFile  = new File(flowPath + "request.json");
-        File expectedFile = new File(flowPath + "expected-response.json");
-
-        // Edge case: someone forgot to create the files
-        assertTrue(requestFile.exists(),
-            "[NRT ERROR] Missing file: " + flowPath + "request.json");
-        assertTrue(expectedFile.exists(),
-            "[NRT ERROR] Missing file: " +
-            flowPath + "expected-response.json");
-
-        // Parse files into JsonNode so we can navigate fields
-        JsonNode requestJson  = mapper.readTree(requestFile);
-        JsonNode expectedJson = mapper.readTree(expectedFile);
-
-        // Edge case: files exist but are empty or malformed JSON
-        assertNotNull(requestJson,
-            "[NRT ERROR] request.json is empty or invalid JSON.");
-        assertNotNull(expectedJson,
-            "[NRT ERROR] expected-response.json is empty or invalid JSON.");
-
-        // ── STEP 3: PARSE REQUEST DETAILS ───────────────────────────
-        //
-        // Pull method and endpoint from request.json
-        // method   → GET, POST, PUT, DELETE, PATCH
-        // endpoint → /currency
-        // fullUrl  → https://uat.server.com/currency
-        //
-        // Edge case: method or endpoint missing in request.json
-        assertTrue(requestJson.has("method"),
-            "[NRT ERROR] 'method' field missing in request.json");
-        assertTrue(requestJson.has("endpoint"),
-            "[NRT ERROR] 'endpoint' field missing in request.json");
-
-        String method   = requestJson.get("method").asText().toUpperCase();
-        String endpoint = requestJson.get("endpoint").asText();
-        String fullUrl  = baseUrl + endpoint;
-
-        System.out.println("\n========== NRT ENGINE START ==========");
-        System.out.println(">> Flow    : currencyApi");
-        System.out.println(">> Method  : " + method);
-        System.out.println(">> URL     : " + fullUrl);
-        System.out.println(">> Base URL: " + baseUrl);
-
-        // ── STEP 4: BUILD HTTP REQUEST ───────────────────────────────
-        //
-        // RestAssured builds the HTTP request.
-        // We always attach the Bearer token from env variable.
-        //
-        RequestSpecification spec = RestAssured.given()
-            .contentType("application/json")
-            // Bearer token from Swagger, passed via env variable
-            .header("Authorization", "Bearer " + authToken);
-
-        // Add query params if present in request.json
-        // e.g. ?sortBy=ccyCode&sortOrder=asc
-        if (requestJson.has("query_params") &&
-            !requestJson.get("query_params").isEmpty()) {
-
-            Iterator<Map.Entry<String, JsonNode>> params =
-                requestJson.get("query_params").fields();
-
-            while (params.hasNext()) {
-                Map.Entry<String, JsonNode> param = params.next();
-                spec = spec.queryParam(
-                    param.getKey(),
-                    param.getValue().asText()
-                );
-                System.out.println(">> Param   : " +
-                    param.getKey() + "=" + param.getValue().asText());
-            }
-        }
-
-        // Add request body if present and not empty
-        // GET requests will have empty {} — we skip those
-        JsonNode requestBody = requestJson.get("request_body");
-        if (requestBody != null && !requestBody.isEmpty()) {
-            spec = spec.body(requestBody.toString());
-            System.out.println(">> Body    : " + requestBody);
-        }
-
-        // ── STEP 5: FIRE THE REQUEST ─────────────────────────────────
-        //
-        // Switch on HTTP method and fire accordingly.
-        // Edge case: unsupported method in request.json
-        //
-        Response response = switch (method) {
-            case "GET"    -> spec.get(fullUrl);
-            case "POST"   -> spec.post(fullUrl);
-            case "PUT"    -> spec.put(fullUrl);
-            case "DELETE" -> spec.delete(fullUrl);
-            case "PATCH"  -> spec.patch(fullUrl);
-            default -> throw new IllegalArgumentException(
-                "[NRT ERROR] Unsupported HTTP method in request.json: "
-                + method +
-                ". Allowed: GET, POST, PUT, DELETE, PATCH");
-        };
-
-        System.out.println(">> Status  : " + response.getStatusCode());
-        System.out.println(">> Response: " + response.getBody().asString());
-
-        // ── STEP 6: CHECK STATUS CODE ────────────────────────────────
-        //
-        // Check the HTTP status code first before touching the body.
-        // If status is wrong, no point comparing the body.
-        // Edge case: expectedStatus missing from expected-response.json
-        //
-        assertTrue(expectedJson.has("expectedStatus"),
-            "[NRT ERROR] 'expectedStatus' missing in " +
-            "expected-response.json");
-
-        int expectedStatus = expectedJson.get("expectedStatus").asInt();
-
-        assertEquals(
-            expectedStatus,
-            response.getStatusCode(),
-            // On failure, print the full body so you know WHY it failed
-            "\n[NRT FAIL] Status code mismatch." +
-            "\nExpected : " + expectedStatus +
-            "\nActual   : " + response.getStatusCode() +
-            "\nBody     : " + response.getBody().asString()
-        );
-
-        // ── STEP 7: PARSE ACTUAL RESPONSE ────────────────────────────
-        //
-        // Parse the response body as JSON.
-        // Edge case: API returns HTML error page or plain text
-        // instead of JSON — we catch and fail clearly.
-        //
-        String responseBody = response.getBody().asString();
-        ObjectNode actual;
-
-        try {
-            actual = (ObjectNode) mapper.readTree(responseBody);
-        } catch (Exception e) {
-            fail("\n[NRT FAIL] Response is not valid JSON.\n" +
-                 "Raw response was:\n" + responseBody);
-            return; // compiler needs this — fail() throws but
-                    // compiler doesn't know that
-        }
-
-        // ── STEP 8: APPLY VALIDATION MODE ───────────────────────────
-        //
-        // Read validation config from expected-response.json
-        // Edge cases: validation block missing, mode missing,
-        // unknown mode value
-        //
-        assertTrue(expectedJson.has("validation"),
-            "[NRT ERROR] 'validation' block missing in " +
-            "expected-response.json");
-        assertTrue(expectedJson.has("expectedResponse"),
-            "[NRT ERROR] 'expectedResponse' block missing in " +
-            "expected-response.json");
-
-        JsonNode validation   = expectedJson.get("validation");
-
-        assertTrue(validation.has("mode"),
-            "[NRT ERROR] 'mode' missing inside 'validation' block");
-
-        String mode           = validation.get("mode").asText().toUpperCase();
-        JsonNode fields       = validation.get("fields");
-        JsonNode expectedBody = expectedJson.get("expectedResponse");
-
-        System.out.println(">> Mode    : " + mode);
-
-        switch (mode) {
-
-            case "STRICT" -> {
-                // Every field must match exactly.
-                // Extra fields in actual = FAIL.
-                // Field order matters.
-                // Use when API contract is fully locked down.
-                System.out.println(">> Comparing with STRICT mode");
-                JSONAssert.assertEquals(
-                    expectedBody.toString(),
-                    actual.toString(),
-                    JSONCompareMode.STRICT
-                );
-            }
-
-            case "LENIENT" -> {
-                // All fields in expected must match.
-                // Extra fields in actual = OK.
-                // Field order doesn't matter.
-                // Use when API returns extra metadata you don't care about.
-                System.out.println(">> Comparing with LENIENT mode");
-                JSONAssert.assertEquals(
-                    expectedBody.toString(),
-                    actual.toString(),
-                    JSONCompareMode.LENIENT
-                );
-            }
-
-            case "IGNORE" -> {
-                // Remove listed dynamic fields from actual before comparing.
-                // Use for fields like timestamp, id that change every call.
-                // Compare the rest leniently.
-                System.out.println(">> Comparing with IGNORE mode");
-
-                if (fields != null && !fields.isEmpty()) {
-                    fields.forEach(f -> {
-                        String fieldName = f.asText();
-                        actual.remove(fieldName);
-                        System.out.println(
-                            ">> Ignoring field: " + fieldName);
-                    });
-                }
-
-                JSONAssert.assertEquals(
-                    expectedBody.toString(),
-                    actual.toString(),
-                    JSONCompareMode.LENIENT
-                );
-            }
-
-            case "CONTAINS" -> {
-                // Only check the specific fields listed in "fields".
-                // Everything else in actual is completely ignored.
-                // Use when you only care about a few key fields.
-                System.out.println(">> Comparing with CONTAINS mode");
-
-                // Edge case: fields array missing or empty for CONTAINS
-                assertNotNull(fields,
-                    "[NRT ERROR] CONTAINS mode requires 'fields' array " +
-                    "in validation block.");
-                assertFalse(fields.isEmpty(),
-                    "[NRT ERROR] CONTAINS mode 'fields' array is empty. " +
-                    "Add the fields you want to check.");
-
-                ObjectNode filteredActual   = mapper.createObjectNode();
-                ObjectNode filteredExpected = mapper.createObjectNode();
-
-                fields.forEach(f -> {
-                    String fieldName = f.asText();
-
-                    if (actual.has(fieldName)) {
-                        filteredActual.set(fieldName,
-                            actual.get(fieldName));
-                    } else {
-                        System.out.println(
-                            ">> WARNING: field '" + fieldName +
-                            "' listed in CONTAINS but not found in " +
-                            "actual response");
-                    }
-
-                    if (expectedBody.has(fieldName)) {
-                        filteredExpected.set(fieldName,
-                            expectedBody.get(fieldName));
-                    }
-                });
-
-                JSONAssert.assertEquals(
-                    filteredExpected.toString(),
-                    filteredActual.toString(),
-                    JSONCompareMode.LENIENT
-                );
-            }
-
-            default -> throw new IllegalArgumentException(
-                "[NRT ERROR] Unknown validation mode: '" + mode + "'.\n" +
-                "Allowed modes: STRICT, LENIENT, IGNORE, CONTAINS"
-            );
-        }
-
-        System.out.println(">> RESULT  : PASSED");
-        System.out.println("========== NRT ENGINE END ============\n");
-    }
-}
-```
-
----
-
-## File 4 — `request.json`
-
-```json
-{
-  "_comment": "NRT request definition for currency API. Fill in actual values.",
-
-  "method": "GET",
-
-  "endpoint": "/currency",
-
-  "query_params": {
-    "sortBy": "ccyCode",
-    "sortOrder": "asc"
-  },
-
-  "request_body": {}
-}
-```
-
----
-
-## File 5 — `expected-response.json`
-
-```json
-{
-  "_comment": "Expected response contract for currency API.",
-
-  "expectedStatus": 200,
-
-  "validation": {
-    "mode": "IGNORE",
-    "fields": ["timestamp"]
-  },
-
-  "expectedResponse": {
-  }
-}
-```
-
-Fill `expectedResponse` by copying the actual response from Swagger once.
-
----
-
-## File 6 — `nrt.yml`
+## File 1 — `.github/workflows/nrt.yml`
 
 ```yaml
 name: NRT - Non Regression Tests
 
-# ── TRIGGER ───────────────────────────────────────────────
-# Manually triggered only.
-# You provide the Bearer token and target environment URL
-# at trigger time. Token is copied from Swagger.
 on:
   workflow_dispatch:
     inputs:
 
-      auth_token:
-        description: 'Bearer token (copy from Swagger)'
-        required: true
-        type: string
-
-      base_url:
-        description: 'Target environment base URL'
+      environment:
+        description: 'Target environment'
         required: true
         type: choice
         options:
-          - https://uat.your-server.com
-          - https://preprod.your-server.com
+          - dev
+          - uat
 
-# ── JOBS ──────────────────────────────────────────────────
+      auth_token_contract:
+        description: 'Bearer token for contract-service (copy from Swagger)'
+        required: true
+        type: string
+
+      auth_token_access:
+        description: 'Bearer token for access-management (copy from Swagger)'
+        required: true
+        type: string
+
 jobs:
   nrt:
     runs-on: [self-hosted, linux]
 
     steps:
 
-      # Step 1: Checkout the code
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 2: Setup Java and Maven
-      # Same action as ci.yml — keeps it consistent
-      - name: Setup Java and Maven
-        uses: SGithubActions/setup-java-maven@stable
-        with:
-          jdk_version: 17.0.8+7
-
-      # Step 3: RBAC Check
-      # Same pattern as ci.yml — only vivek-narayana can run
-      # Change this to the actual NRT owner when needed
-      - name: RBAC Check
+      - name: Set Base URL
         run: |
-          if [[ "${{ github.actor }}" != "vivek-narayana" ]]; then
-            echo "User not authorized to trigger NRT pipeline"
-            exit 1
+          if [ "${{ inputs.environment }}" = "dev" ]; then
+            echo "BASE_URL=https://bo-services-dev.fr.world.socgen" >> $GITHUB_ENV
+          else
+            echo "BASE_URL=https://bo-services-uat.fr.world.socgen" >> $GITHUB_ENV
           fi
 
-      # Step 4: Run NRT Engine
-      # Passes token and URL as env variables
-      # NrtEngine reads them via System.getenv()
-      # -Dsurefire.failIfNoSpecifiedTests=false prevents
-      # Maven from failing when only NrtEngine is specified
-      - name: Run NRT Engine
+      - name: Run NRT
         env:
-          AUTH_TOKEN: ${{ inputs.auth_token }}
-          BASE_URL: ${{ inputs.base_url }}
-        run: |
-          mvn test \
-            -Dtest=NrtEngine \
-            -Dsurefire.failIfNoSpecifiedTests=false
-
-      # Step 5: Publish Test Report
-      # Runs even if tests fail — so you always see the report
-      # Shows exactly which flow failed and what the diff was
-      - name: Publish NRT Report
-        if: always()
-        uses: dorny/test-reporter@v1
-        with:
-          name: NRT Results
-          path: target/surefire-reports/*.xml
-          reporter: java-junit
+          AUTH_TOKEN_CONTRACT: ${{ inputs.auth_token_contract }}
+          AUTH_TOKEN_ACCESS: ${{ inputs.auth_token_access }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: bash nrt-runner.sh
 ```
 
 ---
 
-## What Changed vs Your Existing `ci.yml`
+## File 2 — `nrt-runner.sh`
 
-```
-ci.yml          → completely untouched
-nrt.yml         → new separate workflow
-RBAC            → same pattern, same check
-runner          → same self-hosted linux
-java setup      → same SGithubActions action
-```
-
----
-
-## All Edge Cases Handled
-
-```
-AUTH_TOKEN not set          → clear error message
-AUTH_TOKEN empty string     → clear error message
-BASE_URL not set            → clear error message
-BASE_URL empty string       → clear error message
-request.json missing        → clear error message
-expected-response.json miss → clear error message
-Files empty/invalid JSON    → clear error message
-method field missing        → clear error message
-endpoint field missing      → clear error message
-expectedStatus missing      → clear error message
-validation block missing    → clear error message
-mode field missing          → clear error message
-unknown mode value          → clear error message
-response not JSON           → prints raw response
-CONTAINS with no fields     → clear error message
-field in CONTAINS not found → warning printed
-wrong status code           → prints actual body
-```
-
----
-
-## How To Run
-
-**Locally:**
 ```bash
-export AUTH_TOKEN=eyJ...your_token
-export BASE_URL=https://uat.your-server.com
-mvn test -Dtest=NrtEngine -Dsurefire.failIfNoSpecifiedTests=false
-```
+#!/bin/bash
 
-**GitHub Actions:**
-```
-1. Go to repo → Actions tab
-2. Click "NRT - Non Regression Tests"
-3. Click "Run workflow"
-4. Paste token from Swagger
-5. Select environment URL
-6. Click Run
+# ═══════════════════════════════════════════════════════════
+# NRT Runner — Non Regression Test Engine
+# ═══════════════════════════════════════════════════════════
+#
+# WHAT IT DOES:
+# 1. Validates both tokens against tokeninfo endpoint
+# 2. Prints user metadata from access-management service
+# 3. Iterates over all request/response JSON files
+# 4. Fires curl requests and compares responses
+# 5. Prints clean pass/fail summary with diffs
+#
+# VALIDATION MODES:
+#   EXACT    → every field must match exactly
+#   CONTAINS → expected fields must match, extras ignored
+#   IGNORE   → strip listed fields, compare rest
+#   EXISTS   → only check listed fields exist, values ignored
+#
+# HOW TO RUN LOCALLY:
+#   export AUTH_TOKEN_CONTRACT=your_token
+#   export AUTH_TOKEN_ACCESS=your_token
+#   export BASE_URL=https://bo-services-dev.fr.world.socgen
+#   export ENVIRONMENT=dev
+#   bash nrt-runner.sh
+# ═══════════════════════════════════════════════════════════
+
+set -o pipefail
+
+# ── CONSTANTS ─────────────────────────────────────────────
+TOKENINFO_URL="https://sgconnect-hom.fr.world.socgen/sgconnect/oauth2/tokeninfo"
+CURL_TIMEOUT=30
+PASSED=0
+FAILED=0
+FAILED_DETAILS=""
+
+# ── HELPERS ───────────────────────────────────────────────
+
+add_summary() {
+  if [ -n "$GITHUB_STEP_SUMMARY" ]; then
+    echo "$1" >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
+print_header() {
+  echo ""
+  echo "=========================================="
+  echo "  $1"
+  echo "=========================================="
+}
+
+print_divider() {
+  echo "──────────────────────────────────────────"
+}
+
+# ── STEP 1: VALIDATE INPUTS ───────────────────────────────
+
+print_header "INPUT VALIDATION"
+
+if [ -z "$AUTH_TOKEN_CONTRACT" ]; then
+  echo "ERROR: AUTH_TOKEN_CONTRACT is not set"
+  exit 1
+fi
+
+if [ -z "$AUTH_TOKEN_ACCESS" ]; then
+  echo "ERROR: AUTH_TOKEN_ACCESS is not set"
+  exit 1
+fi
+
+if [ -z "$BASE_URL" ]; then
+  echo "ERROR: BASE_URL is not set"
+  exit 1
+fi
+
+echo ">> Environment : ${ENVIRONMENT:-local}"
+echo ">> Base URL    : $BASE_URL"
+echo ">> Inputs      : OK ✓"
+
+# ── STEP 2: VALIDATE TOKENS ───────────────────────────────
+
+print_header "TOKEN VALIDATION"
+
+# ── Validate contract-service token ──
+echo ""
+echo ">> Validating contract-service token..."
+
+CONTRACT_INFO=$(curl -s \
+  --max-time $CURL_TIMEOUT \
+  "${TOKENINFO_URL}?access_token=${AUTH_TOKEN_CONTRACT}")
+
+if [ -z "$CONTRACT_INFO" ]; then
+  echo "ERROR: Could not reach tokeninfo endpoint for contract-service token"
+  exit 1
+fi
+
+if ! echo "$CONTRACT_INFO" | jq . > /dev/null 2>&1; then
+  echo "ERROR: tokeninfo returned invalid JSON for contract-service token"
+  echo "Raw: $CONTRACT_INFO"
+  exit 1
+fi
+
+CONTRACT_ERROR=$(echo "$CONTRACT_INFO" | jq -r '.error // empty')
+if [ -n "$CONTRACT_ERROR" ]; then
+  echo "ERROR: contract-service token is invalid or expired"
+  echo "Details: $(echo "$CONTRACT_INFO" | \
+    jq -r '.error_description // .error')"
+  exit 1
+fi
+
+USER_EMAIL=$(echo "$CONTRACT_INFO" | \
+  jq -r '.subname // .sub // .email // empty')
+
+if [ -z "$USER_EMAIL" ]; then
+  echo "ERROR: Could not extract user email from contract-service token"
+  exit 1
+fi
+
+CONTRACT_EXPIRES=$(echo "$CONTRACT_INFO" | \
+  jq -r '.expires_in // "unknown"')
+
+echo ">> contract-service token : VALID ✓"
+echo ">> Expires in             : ${CONTRACT_EXPIRES}s"
+echo ">> User Email             : $USER_EMAIL"
+
+# ── Validate access-management token ──
+echo ""
+echo ">> Validating access-management token..."
+
+ACCESS_INFO=$(curl -s \
+  --max-time $CURL_TIMEOUT \
+  "${TOKENINFO_URL}?access_token=${AUTH_TOKEN_ACCESS}")
+
+if [ -z "$ACCESS_INFO" ]; then
+  echo "ERROR: Could not reach tokeninfo endpoint for access-management token"
+  exit 1
+fi
+
+if ! echo "$ACCESS_INFO" | jq . > /dev/null 2>&1; then
+  echo "ERROR: tokeninfo returned invalid JSON for access-management token"
+  echo "Raw: $ACCESS_INFO"
+  exit 1
+fi
+
+ACCESS_ERROR=$(echo "$ACCESS_INFO" | jq -r '.error // empty')
+if [ -n "$ACCESS_ERROR" ]; then
+  echo "ERROR: access-management token is invalid or expired"
+  echo "Details: $(echo "$ACCESS_INFO" | \
+    jq -r '.error_description // .error')"
+  exit 1
+fi
+
+ACCESS_EXPIRES=$(echo "$ACCESS_INFO" | \
+  jq -r '.expires_in // "unknown"')
+
+echo ">> access-management token: VALID ✓"
+echo ">> Expires in             : ${ACCESS_EXPIRES}s"
+
+# ── STEP 3: PRINT USER METADATA ───────────────────────────
+
+print_header "USER METADATA"
+
+ENCODED_EMAIL=$(echo "$USER_EMAIL" | sed 's/@/%40/g')
+
+USER_INFO=$(curl -s \
+  --max-time $CURL_TIMEOUT \
+  -H "accept: application/json" \
+  -H "Authorization: Bearer $AUTH_TOKEN_ACCESS" \
+  "${BASE_URL}/access-management-service/api/v1/users/${ENCODED_EMAIL}")
+
+if [ -z "$USER_INFO" ]; then
+  echo "WARNING: Could not fetch user metadata. Continuing..."
+elif ! echo "$USER_INFO" | jq . > /dev/null 2>&1; then
+  echo "WARNING: User metadata response is not valid JSON. Continuing..."
+else
+  USER_ERROR=$(echo "$USER_INFO" | jq -r '.error // empty')
+  if [ -n "$USER_ERROR" ]; then
+    echo "WARNING: Could not fetch user metadata: $USER_ERROR"
+    echo "Continuing with NRT tests..."
+  else
+    GIVEN_NAME=$(echo "$USER_INFO" | jq -r '.givenName // "N/A"')
+    SURNAME=$(echo "$USER_INFO" | jq -r '.surname // "N/A"')
+    DEPARTMENT=$(echo "$USER_INFO" | jq -r '.department // "N/A"')
+    IGG=$(echo "$USER_INFO" | jq -r '.igg // "N/A"')
+
+    echo ""
+    echo ">> Name       : $GIVEN_NAME $SURNAME"
+    echo ">> Email      : $USER_EMAIL"
+    echo ">> Department : $DEPARTMENT"
+    echo ">> IGG        : $IGG"
+    echo ""
+    echo ">> Privilege Groups:"
+    echo "$USER_INFO" | jq -r '.privilegeGroups[]? // empty' | \
+      while read -r group; do echo "   - $group"; done
+    echo ""
+    echo ">> Roles:"
+    echo "$USER_INFO" | jq -r '.roles[]? // empty' | \
+      while read -r role; do echo "   - $role"; done
+  fi
+fi
+
+# ── STEP 4: RUN NRT TESTS ─────────────────────────────────
+
+print_header "NRT TEST EXECUTION"
+
+if [ ! -d "testApi" ]; then
+  echo "ERROR: testApi folder not found."
+  echo "Create testApi/<service>/request/ and response/ folders."
+  exit 1
+fi
+
+add_summary "# NRT Test Results"
+add_summary "**Environment:** ${ENVIRONMENT:-local} | **Base URL:** $BASE_URL | **User:** $USER_EMAIL"
+add_summary ""
+
+for SERVICE_DIR in testApi/*/; do
+
+  if [ ! -d "$SERVICE_DIR" ]; then
+    echo "WARNING: No service folders found in testApi/"
+    break
+  fi
+
+  SERVICE_NAME=$(basename "$SERVICE_DIR")
+  REQUEST_DIR="${SERVICE_DIR}request"
+  RESPONSE_DIR="${SERVICE_DIR}response"
+
+  echo ""
+  print_divider
+  echo "  Service: $SERVICE_NAME"
+  print_divider
+
+  add_summary "## $SERVICE_NAME"
+  add_summary "| Test | Status | Time | Details |"
+  add_summary "|------|--------|------|---------|"
+
+  if [ ! -d "$REQUEST_DIR" ]; then
+    echo "WARNING: No request folder found. Skipping $SERVICE_NAME"
+    add_summary "| - | ⚠️ SKIP | - | No request folder |"
+    continue
+  fi
+
+  if [ ! -d "$RESPONSE_DIR" ]; then
+    echo "WARNING: No response folder found. Skipping $SERVICE_NAME"
+    add_summary "| - | ⚠️ SKIP | - | No response folder |"
+    continue
+  fi
+
+  FOUND_FILES=false
+  for REQUEST_FILE in "$REQUEST_DIR"/*_request.json; do
+    [ -f "$REQUEST_FILE" ] && FOUND_FILES=true && break
+  done
+
+  if [ "$FOUND_FILES" = false ]; then
+    echo "WARNING: No request files found in $REQUEST_DIR"
+    add_summary "| - | ⚠️ SKIP | - | No request files |"
+    continue
+  fi
+
+  for REQUEST_FILE in "$REQUEST_DIR"/*_request.json; do
+
+    [ -f "$REQUEST_FILE" ] || continue
+
+    FILENAME=$(basename "$REQUEST_FILE")
+    TEST_NAME="${FILENAME/_request.json/}"
+    RESPONSE_FILE="${RESPONSE_DIR}/${TEST_NAME}_response.json"
+
+    echo ""
+    echo ">> Test: $TEST_NAME"
+
+    if [ ! -f "$RESPONSE_FILE" ]; then
+      echo "   ERROR: Missing response file: $RESPONSE_FILE"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  Missing response file\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | - | Missing response file |"
+      continue
+    fi
+
+    # Read request
+    METHOD=$(jq -r '.method' "$REQUEST_FILE")
+    ENDPOINT=$(jq -r '.endpoint' "$REQUEST_FILE")
+    QUERY_PARAMS=$(jq -r '.query_params // empty' "$REQUEST_FILE")
+    BODY=$(jq -r '.body // empty' "$REQUEST_FILE")
+    TOKEN_TYPE=$(jq -r '.token_type // "contract"' "$REQUEST_FILE")
+
+    if [ -z "$METHOD" ] || [ "$METHOD" = "null" ]; then
+      echo "   ERROR: method missing in request file"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  method missing in request file\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | - | method missing |"
+      continue
+    fi
+
+    if [ -z "$ENDPOINT" ] || [ "$ENDPOINT" = "null" ]; then
+      echo "   ERROR: endpoint missing in request file"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  endpoint missing in request file\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | - | endpoint missing |"
+      continue
+    fi
+
+    if [ "$TOKEN_TYPE" = "access" ]; then
+      AUTH_TOKEN="$AUTH_TOKEN_ACCESS"
+    else
+      AUTH_TOKEN="$AUTH_TOKEN_CONTRACT"
+    fi
+
+    if [ -n "$QUERY_PARAMS" ]; then
+      FULL_URL="${BASE_URL}${ENDPOINT}?${QUERY_PARAMS}"
+    else
+      FULL_URL="${BASE_URL}${ENDPOINT}"
+    fi
+
+    echo "   Method  : $METHOD"
+    echo "   URL     : $FULL_URL"
+    [ -n "$BODY" ] && echo "   Body    : $BODY"
+    echo "   Token   : $TOKEN_TYPE"
+
+    # Read expected response
+    EXPECTED_STATUS=$(jq -r '.expectedStatus' "$RESPONSE_FILE")
+    MODE=$(jq -r '.validation.mode' "$RESPONSE_FILE")
+    FIELDS=$(jq -r '.validation.fields // []' "$RESPONSE_FILE")
+    EXPECTED_BODY=$(jq -r '.expectedResponse' "$RESPONSE_FILE")
+
+    if [ -z "$EXPECTED_STATUS" ] || [ "$EXPECTED_STATUS" = "null" ]; then
+      echo "   ERROR: expectedStatus missing in response file"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  expectedStatus missing\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | - | expectedStatus missing |"
+      continue
+    fi
+
+    if [ -z "$MODE" ] || [ "$MODE" = "null" ]; then
+      echo "   ERROR: validation.mode missing in response file"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  validation.mode missing\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | - | validation.mode missing |"
+      continue
+    fi
+
+    # Fire request
+    START_TIME=$(date +%s%3N)
+
+    if [ -n "$BODY" ]; then
+      RESPONSE=$(curl -s \
+        --max-time $CURL_TIMEOUT \
+        -w "\n%{http_code}" \
+        -X "$METHOD" \
+        -H "accept: application/json" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $AUTH_TOKEN" \
+        -d "$BODY" \
+        "$FULL_URL")
+    else
+      RESPONSE=$(curl -s \
+        --max-time $CURL_TIMEOUT \
+        -w "\n%{http_code}" \
+        -X "$METHOD" \
+        -H "accept: application/json" \
+        -H "Authorization: Bearer $AUTH_TOKEN" \
+        "$FULL_URL")
+    fi
+
+    END_TIME=$(date +%s%3N)
+    RESPONSE_TIME=$((END_TIME - START_TIME))
+
+    ACTUAL_STATUS=$(echo "$RESPONSE" | tail -1)
+    ACTUAL_BODY=$(echo "$RESPONSE" | head -n -1)
+
+    echo "   Status  : $ACTUAL_STATUS (expected: $EXPECTED_STATUS)"
+    echo "   Time    : ${RESPONSE_TIME}ms"
+
+    # Check status code
+    if [ "$ACTUAL_STATUS" != "$EXPECTED_STATUS" ]; then
+      echo "   RESULT  : FAIL ✗"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  Status   : expected=$EXPECTED_STATUS actual=$ACTUAL_STATUS\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  Body     : $ACTUAL_BODY\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | ${RESPONSE_TIME}ms | Status: expected=$EXPECTED_STATUS actual=$ACTUAL_STATUS |"
+      continue
+    fi
+
+    # Check valid JSON
+    if ! echo "$ACTUAL_BODY" | jq . > /dev/null 2>&1; then
+      echo "   RESULT  : FAIL ✗ — response is not valid JSON"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  Response is not valid JSON\n"
+      FAILED_DETAILS="${FAILED_DETAILS}  Raw: $ACTUAL_BODY\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | ${RESPONSE_TIME}ms | Response not valid JSON |"
+      continue
+    fi
+
+    echo "   Mode    : $MODE"
+
+    TEST_PASSED=true
+    TEST_DIFF=""
+
+    case "$MODE" in
+
+      "EXACT")
+        DIFF_OUTPUT=$(diff \
+          <(echo "$EXPECTED_BODY" | jq -S .) \
+          <(echo "$ACTUAL_BODY" | jq -S .) 2>&1)
+        if [ -n "$DIFF_OUTPUT" ]; then
+          TEST_PASSED=false
+          TEST_DIFF="$DIFF_OUTPUT"
+        fi
+        ;;
+
+      "CONTAINS")
+        for KEY in $(echo "$EXPECTED_BODY" | jq -r 'keys[]'); do
+          EXPECTED_VAL=$(echo "$EXPECTED_BODY" | \
+            jq -r --arg k "$KEY" '.[$k] | tostring')
+          ACTUAL_VAL=$(echo "$ACTUAL_BODY" | \
+            jq -r --arg k "$KEY" '.[$k] // "MISSING" | tostring')
+          if [ "$EXPECTED_VAL" != "$ACTUAL_VAL" ]; then
+            TEST_PASSED=false
+            TEST_DIFF="${TEST_DIFF}  Field    : $KEY\n"
+            TEST_DIFF="${TEST_DIFF}  Expected : $EXPECTED_VAL\n"
+            TEST_DIFF="${TEST_DIFF}  Actual   : $ACTUAL_VAL\n\n"
+          fi
+        done
+        ;;
+
+      "IGNORE")
+        STRIPPED_ACTUAL="$ACTUAL_BODY"
+        for FIELD in $(echo "$FIELDS" | jq -r '.[]'); do
+          STRIPPED_ACTUAL=$(echo "$STRIPPED_ACTUAL" | jq "del(.$FIELD)")
+          echo "   Ignoring: $FIELD"
+        done
+        DIFF_OUTPUT=$(diff \
+          <(echo "$EXPECTED_BODY" | jq -S .) \
+          <(echo "$STRIPPED_ACTUAL" | jq -S .) 2>&1)
+        if [ -n "$DIFF_OUTPUT" ]; then
+          TEST_PASSED=false
+          TEST_DIFF="$DIFF_OUTPUT"
+        fi
+        ;;
+
+      "EXISTS")
+        for FIELD in $(echo "$FIELDS" | jq -r '.[]'); do
+          EXISTS=$(echo "$ACTUAL_BODY" | \
+            jq -r --arg f "$FIELD" 'has($f)')
+          if [ "$EXISTS" = "true" ]; then
+            echo "   EXISTS  : $FIELD ✓"
+          else
+            TEST_PASSED=false
+            TEST_DIFF="${TEST_DIFF}  Field '$FIELD' not found in response\n"
+          fi
+        done
+        ;;
+
+      *)
+        TEST_PASSED=false
+        TEST_DIFF="Unknown validation mode: $MODE\nAllowed: EXACT, CONTAINS, IGNORE, EXISTS"
+        ;;
+
+    esac
+
+    if [ "$TEST_PASSED" = true ]; then
+      echo "   RESULT  : PASS ✓"
+      PASSED=$((PASSED + 1))
+      add_summary "| $TEST_NAME | ✅ PASS | ${RESPONSE_TIME}ms | - |"
+    else
+      echo "   RESULT  : FAIL ✗"
+      FAILED=$((FAILED + 1))
+      FAILED_DETAILS="${FAILED_DETAILS}\n[FAIL] ${SERVICE_NAME}/${TEST_NAME}\n${TEST_DIFF}\n"
+      add_summary "| $TEST_NAME | ❌ FAIL | ${RESPONSE_TIME}ms | See details below |"
+    fi
+
+  done
+
+  add_summary ""
+
+done
+
+# ── STEP 5: FINAL SUMMARY ─────────────────────────────────
+
+TOTAL=$((PASSED + FAILED))
+
+print_header "FAILED TEST DETAILS"
+
+if [ $FAILED -gt 0 ]; then
+  echo -e "$FAILED_DETAILS"
+else
+  echo "  No failures ✓"
+fi
+
+print_header "FINAL RESULTS"
+
+echo ""
+echo "  Total  : $TOTAL"
+echo "  Passed : $PASSED ✓"
+echo "  Failed : $FAILED ✗"
+echo ""
+
+if [ $FAILED -eq 0 ]; then
+  echo "  ✓ ALL TESTS PASSED"
+  EXIT_CODE=0
+else
+  echo "  ✗ $FAILED TEST(S) FAILED"
+  EXIT_CODE=1
+fi
+
+echo ""
+
+add_summary "## Final Results"
+add_summary "| Total | Passed | Failed |"
+add_summary "|-------|--------|--------|"
+add_summary "| $TOTAL | $PASSED ✅ | $FAILED ❌ |"
+
+if [ $FAILED -gt 0 ]; then
+  add_summary ""
+  add_summary "## Failed Test Details"
+  add_summary "\`\`\`"
+  echo -e "$FAILED_DETAILS" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+  add_summary "\`\`\`"
+fi
+
+exit $EXIT_CODE
 ```
 
 ---
 
-Now send me what's in `application.properties` and the actual currency API URL + response from Swagger, and I'll fill in the JSON files completely.
+## File 3 — `testApi/bos-contract-service/request/healthCheck_request.json`
+
+```json
+{
+  "_comment": "Health check API for contract-service",
+  "method": "GET",
+  "endpoint": "/contract-service/api/v1/do-status-check",
+  "query_params": "",
+  "body": "",
+  "token_type": "contract"
+}
+```
+
+---
+
+## File 4 — `testApi/bos-contract-service/response/healthCheck_response.json`
+
+```json
+{
+  "_comment": "Expected response for health check. Exact match on message field.",
+  "expectedStatus": 200,
+  "validation": {
+    "mode": "EXACT",
+    "fields": []
+  },
+  "expectedResponse": {
+    "message": "UP"
+  }
+}
+```
+
+---
+
+## File 5 — `testApi/bos-contract-service/request/currencyApi_request.json`
+
+```json
+{
+  "_comment": "Currency API for contract-service",
+  "method": "GET",
+  "endpoint": "/contract-service/api/v1/currencies",
+  "query_params": "sortBy=ccyCode&sortingOrder=asc",
+  "body": "",
+  "token_type": "contract"
+}
+```
+
+---
+
+## File 6 — `testApi/bos-contract-service/response/currencyApi_response.json`
+
+```json
+{
+  "_comment": "Expected response for currency API. Only checking totalElements exists not its value.",
+  "expectedStatus": 200,
+  "validation": {
+    "mode": "EXISTS",
+    "fields": ["totalElements"]
+  },
+  "expectedResponse": {}
+}
+```
+
+---
+
+## Git Steps
+
+```bash
+# Create folder structure
+mkdir -p testApi/bos-contract-service/request
+mkdir -p testApi/bos-contract-service/response
+
+# Make shell script executable
+chmod +x nrt-runner.sh
+
+# Stage everything
+git add .
+
+# Commit
+git commit -m "feat: add shell-based NRT engine v2"
+
+# Push
+git push origin nrt-v2
+```
+
+Then go to GitHub Actions → NRT - Non Regression Tests → Run workflow → select `nrt-v2` branch → select environment → paste both tokens → Run.
+
+Share what you get.
