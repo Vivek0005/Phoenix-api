@@ -1,6 +1,6 @@
-# BOS-NRT — Non Regression Test Framework
+# BOS-NRT — Framework
 
-A lightweight, shell-based Non Regression Testing (NRT) framework for Back Office Services APIs. Built to run inside GitHub Actions with zero external dependencies.
+A lightweight, shell-based Non Regression Testing (NRT) framework for APIs. Built to run inside GitHub Actions with zero external dependencies.
 
 ---
 
@@ -15,17 +15,15 @@ Non Regression Testing ensures that APIs continue to behave as expected after co
 ## How It Works
 
 ```
-You trigger the pipeline manually
+Paste Bearer token(s) from Swagger
           ↓
-Paste Bearer tokens from Swagger
+RBAC check — only authorized users can run
           ↓
-Select target environment (dev / uat)
-          ↓
-Framework validates both tokens
+Framework validates token(s)
           ↓
 Prints user metadata (name, roles, department)
           ↓
-Iterates over all test folders automatically
+Runs all tests for the selected service
           ↓
 Fires each API request via curl
           ↓
@@ -33,7 +31,7 @@ Compares actual response against expected
           ↓
 Prints clean pass/fail table in GitHub UI
           ↓
-Shows diff for any failures
+Shows numbered diff for any failures
 ```
 
 ---
@@ -44,18 +42,23 @@ Shows diff for any failures
 bos-nrt/
 ├── .github/
 │   └── workflows/
-│       └── nrt.yml              ← GitHub Actions workflow
+│       └── nrt.yml                        ← GitHub Actions workflow
 ├── testApi/
-│   └── bos-contract-service/    ← one folder per service
+│   ├── bos-contract-service/              ← one folder per service
+│   │   ├── request/
+│   │   │   ├── healthCheck_request.json
+│   │   │   └── currencyApi_request.json
+│   │   └── response/
+│   │       ├── healthCheck_response.json
+│   │       └── currencyApi_response.json
+│   └── bos-access-management/
 │       ├── request/
 │       │   ├── healthCheck_request.json
-│       │   └── currencyApi_request.json
-                ........
+│       │   └── getUsersApi_request.json
 │       └── response/
 │           ├── healthCheck_response.json
-│           └── currencyApi_response.json
-                ........
-├── nrt-runner.sh                ← core engine
+│           └── getUsersApi_response.json
+├── nrt-runner.sh                          ← core engine
 └── README.md
 ```
 
@@ -69,11 +72,12 @@ bos-nrt/
 4. Click **Run workflow**
 5. Fill in the inputs:
 
-| Input                 | Description                                            |
-| --------------------- | ------------------------------------------------------ |
-| `environment`         | Select `dev` or `uat`                                  |
-| `auth_token_contract` | Bearer token for contract-service (copy from Swagger)  |
-| `auth_token_access`   | Bearer token for access-management (copy from Swagger) |
+| Input                | Description                                               | Required                                  |
+| -------------------- | --------------------------------------------------------- | ----------------------------------------- |
+| `environment`        | Select `dev` or `uat`                                     | Yes                                       |
+| `service`            | Select which service to test                              | Yes                                       |
+| `auth_token_service` | Bearer token for the selected service (copy from Swagger) | Yes                                       |
+| `auth_token_access`  | Bearer token for access-management (copy from Swagger)    | Only if service ≠ `bos-access-management` |
 
 6. Click **Run workflow**
 
@@ -81,11 +85,34 @@ bos-nrt/
 
 ---
 
+## RBAC — Access Control
+
+Only authorized users can trigger the NRT pipeline. Authorization is managed via a GitHub Secret.
+
+**Setting up authorized users (repo admin only):**
+
+```
+Go to repo → Settings → Secrets and variables → Actions
+Add secret:
+  Name  : NRT_ALLOWED_USERS
+  Value : vivek-narayana,amisha-sinha,...
+```
+
+If an unauthorized user tries to trigger the pipeline:
+
+```
+ERROR: User 'username' is not authorized to run NRT pipeline
+```
+
+To add or remove users — update the secret.
+
+---
+
 ## Adding A New API Test
 
 No code changes needed. Just add JSON files.
 
-**Step 1 — Create request file**
+### Step 1 — Create request file
 
 `testApi/bos-contract-service/request/myApi_request.json`
 
@@ -100,7 +127,7 @@ No code changes needed. Just add JSON files.
 }
 ```
 
-**Step 2 — Create response file**
+### Step 2 — Create response file
 
 `testApi/bos-contract-service/response/myApi_response.json`
 
@@ -116,7 +143,7 @@ No code changes needed. Just add JSON files.
 }
 ```
 
-**Step 3 — Push and trigger**
+### Step 3 — Push and trigger
 
 That's it. The engine discovers new files automatically.
 
@@ -124,32 +151,46 @@ That's it. The engine discovers new files automatically.
 
 ## Adding A New Service
 
-Create a new folder under `testApi/`:
+### Step 1 — Create folder structure
 
 ```
 testApi/
-  bos-contract-service/     ← existing
-  bos-access-management/    ← new service
+  bos-new-service/
     request/
-      usersApi_request.json
+      myApi_request.json
     response/
-      usersApi_response.json
+      myApi_response.json
 ```
 
-The engine loops over all service folders automatically. No code changes needed.
+### Step 2 — Add service to workflow dropdown
+
+In `nrt.yml` add the service name to the options list:
+
+```yaml
+service:
+  type: choice
+  options:
+    - bos-contract-service
+    - bos-access-management
+    - bos-new-service        ← add this
+```
+
+### Step 3 — Push and trigger
+
+Done. No other code changes needed.
 
 ---
 
 ## Request File Reference
 
-| Field          | Required | Description                                                                  |
-| -------------- | -------- | ---------------------------------------------------------------------------- |
-| `method`       | Yes      | HTTP method — `GET`, `POST`, `PUT`, `DELETE`, `PATCH`                        |
-| `endpoint`     | Yes      | API path including service prefix e.g. `/contract-service/api/v1/currencies` |
-| `query_params` | No       | Query string e.g. `sortBy=ccyCode&sortingOrder=asc`                          |
-| `body`         | No       | Request body for POST/PUT. Leave empty for GET                               |
-| `token_type`   | No       | `contract` (default) or `access`. Determines which token is used             |
-| `_comment`     | No       | Human-readable description. Ignored by engine                                |
+| Field          | Required | Description                                                      |
+| -------------- | -------- | ---------------------------------------------------------------- |
+| `method`       | Yes      | HTTP method — `GET`, `POST`, `PUT`, `DELETE`, `PATCH`            |
+| `endpoint`     | Yes      | Full API path e.g. `/contract-service/api/v1/currencies`         |
+| `query_params` | No       | Query string e.g. `sortBy=ccyCode&sortingOrder=asc`              |
+| `body`         | No       | Request body for POST/PUT. Leave empty for GET                   |
+| `token_type`   | No       | `contract` (default) or `access`. Determines which token is used |
+| `_comment`     | No       | Human-readable description. Ignored by engine                    |
 
 ---
 
@@ -183,8 +224,6 @@ Use when the response is fully locked down and nothing should change.
 }
 ```
 
----
-
 ### CONTAINS
 
 All fields in `expectedResponse` must match. Extra fields in actual response are ignored.
@@ -202,8 +241,6 @@ Use when the API returns additional metadata you don't care about.
 }
 ```
 
----
-
 ### IGNORE
 
 Listed fields are stripped from the actual response before comparing everything else.
@@ -219,8 +256,6 @@ Use for dynamic fields like `timestamp`, `id`, `createdAt` that change on every 
   "status": "SUCCESS"
 }
 ```
-
----
 
 ### EXISTS
 
@@ -238,97 +273,53 @@ Use when a field must always be present but its value changes (e.g. `totalElemen
 
 ---
 
-## What The Output Looks Like
+## What The Output Looks Like (Example)
 
-### GitHub Job Summary (pass Example)
-
-| Test        | Status | Time  | Details |
-| ----------- | ------ | ----- | ------- |
-| healthCheck | PASS   | 37ms  | -       |
-| currencyApi | PASS   | 285ms | -       |
-
-**Final Results**
-
-| Total | Passed | Failed |
-| ----- | ------ | ------ |
-| 2     | 2      | 0      |
-
----
-
-### GitHub Job Summary (fail Example)
-
-| Test        | Status | Time  | Details           |
-| ----------- | ------ | ----- | ----------------- |
-| healthCheck | PASS   | 37ms  | -                 |
-| currencyApi | FAIL   | 161ms | See details below |
-
-**Failed Test Details**
+### GitHub Job Summary (all pass)
 
 ```
-[FAIL] bos-contract-service/currencyApi
-  Field 'totalElements' not found in response
+Environment: dev | Base URL: https://bo-services-dev.fr.world.socgen | Service: bos-contract-service | User: vivek.narayana@socgen.com
+
+bos-contract-service
+Test            Status     Time    Details
+healthCheck     ✅ PASS    37ms    -
+currencyApi     ✅ PASS    285ms   -
+
+Final Results
+Total    Passed    Failed
+2        2 ✅      0 ❌
 ```
 
----
-
-## Authentication
-
-This framework uses two separate Bearer tokens:
-
-| Token                 | Purpose                                                     |
-| --------------------- | ----------------------------------------------------------- |
-| `auth_token_contract` | Used to call contract-service APIs                          |
-| `auth_token_access`   | Used to call access-management APIs and fetch user metadata |
-
-(Same goes for other services)
-
-All tokens are validated against the SG Connect tokeninfo endpoint before any tests run. If either token is expired, the pipeline fails immediately with a clear message.
-
-Tokens are obtained from Swagger and pasted manually at pipeline trigger time. This is a known limitation of the OIDC implicit flow used by SG Connect — token generation requires a browser session and cannot be fully automated.
-
----
-
-## Token Validation Flow
+### GitHub Job Summary (with failures)
 
 ```
-Hit tokeninfo endpoint for contract-service token
-          ↓
-Check token is not expired
-          ↓
-Extract user email from token
-          ↓
-Hit tokeninfo endpoint for access-management token
-          ↓
-Check token is not expired
-          ↓
-Hit access-management API with user email
-          ↓
-Print: name, department, IGG, roles, privilege groups
+bos-contract-service
+Test            Status     Time    Details
+healthCheck     ✅ PASS    37ms    -
+currencyApi     ❌ FAIL    161ms   See details below
+
+Failed Test Details
+1. [FAIL] bos-contract-service/currencyApi
+   Field 'totalElements' not found in response
+
+2. [FAIL] bos-contract-service/healthCheck
+   Status : expected=200 actual=503
 ```
 
 ---
 
 ## Edge Cases Handled
 
-| Scenario                                   | Behaviour                                     |
-| ------------------------------------------ | --------------------------------------------- |
-| Token expired or invalid                   | Pipeline fails immediately with clear message |
-| tokeninfo endpoint unreachable             | Pipeline fails immediately                    |
-| User metadata unreachable                  | Warning printed, tests continue               |
-| testApi folder missing                     | Pipeline fails with clear message             |
-| Service folder has no request folder       | Service skipped with warning                  |
-| Service folder has no response folder      | Service skipped with warning                  |
-| No request files in folder                 | Service skipped with warning                  |
-| Response file missing for a request        | That test marked as FAIL                      |
-| `method` missing in request file           | That test marked as FAIL                      |
-| `endpoint` missing in request file         | That test marked as FAIL                      |
-| `expectedStatus` missing in response file  | That test marked as FAIL                      |
-| `validation.mode` missing in response file | That test marked as FAIL                      |
-| Unknown validation mode                    | That test marked as FAIL                      |
-| curl timeout (30s)                         | That test marked as FAIL with timeout message |
-| Network error / server unreachable         | That test marked as FAIL with curl exit code  |
-| Response is not valid JSON                 | That test marked as FAIL                      |
-| Response body too large                    | Truncated to 20 lines in logs                 |
+| Scenario | Behaviour |
+|---|---|
+| Unauthorized user triggers pipeline | RBAC check fails immediately |
+| Token expired or invalid | Pipeline fails immediately |
+| `auth_token_access` missing for non-access service | Pipeline fails with clear message |
+| Response file missing for a request | That test marked as FAIL |
+| curl timeout (30s) | That test marked as FAIL with timeout message |
+| Network error / server unreachable | That test marked as FAIL with curl exit code |
+| Response is not valid JSON | That test marked as FAIL |
+| Multiple failures | All shown numbered at end (1. 2. 3.) |
 
 ---
 
@@ -341,8 +332,8 @@ Print: name, department, IGG, roles, privilege groups
 | `jq`           | JSON parsing and comparison  |
 | `diff`         | Response diffing             |
 | GitHub Actions | CI/CD pipeline and reporting |
+| GitHub Secrets | RBAC user management         |
 
-No external dependencies. No build tools. No package managers. Runs on any Linux machine with curl and jq installed.
+No external dependencies. No build tools. No package managers. Runs on any Linux machine with `curl` and `jq` installed.
 
 ---
-
