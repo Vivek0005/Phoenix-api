@@ -1,0 +1,20 @@
+{
+  "description": "Currencies API - reference data",
+  "method": "GET",
+  "api_endpoint": "/contract-service/api/v1/currencies",
+  "test_suite": [
+    {
+      "test_name": "listCurrencies",
+      "description": "[success] Currency list returns a non-empty totalElements",
+      "request_params": "sortBy=ccyCode&sortingOrder=asc",
+      "request_payload": "",
+      "expected_status": 200,
+      "expected_response": {},
+      "expected_response_file": "",
+      "validation_config": {
+        "mode": "EXISTS",
+        "fields": ["totalElements", ".elements[].ccyCode"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+name: NRT - Non Regression Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - uat
+      service:
+        description: 'Select service to test (one per run)'
+        required: true
+        type: choice
+        options:
+          - bos-contract-service
+          - bos-access-management-service
+      auth_token_service:
+        description: 'Bearer token for the selected service (copy fresh from Swagger)'
+        required: true
+        type: string
+      auth_token_access:
+        description: 'Access-management token (NOT required if service = bos-access-management-service)'
+        required: false
+        type: string
+
+jobs:
+  nrt:
+    runs-on: [self-hosted, linux]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # --- RBAC: only allow-listed GitHub users may run this workflow ---
+      # Repo admin sets secret NRT_ALLOWED_USERS = "vivek-narayana,amisha-sinha,amber-username"
+      - name: RBAC Check
+        run: |
+          ALLOWED_USERS="${{ secrets.NRT_ALLOWED_USERS }}"
+          if [[ -z "$ALLOWED_USERS" ]]; then
+            echo "ERROR: NRT_ALLOWED_USERS secret is not set"
+            exit 1
+          fi
+          IFS=',' read -ra USERS <<< "$ALLOWED_USERS"
+          AUTHORIZED=false
+          for U in "${USERS[@]}"; do
+            TRIMMED="$(echo "$U" | tr -d '[:space:]')"
+            if [[ "${{ github.actor }}" == "$TRIMMED" ]]; then
+              AUTHORIZED=true
+              break
+            fi
+          done
+          if [[ "$AUTHORIZED" == "false" ]]; then
+            echo "ERROR: User '${{ github.actor }}' is not authorized to run NRT"
+            exit 1
+          fi
+          echo ">> RBAC: User '${{ github.actor }}' is authorized"
+
+      - name: Set Base URL
+        run: |
+          if [ "${{ inputs.environment }}" = "dev" ]; then
+            echo "BASE_URL=https://bo-services-dev.fr.world.socgen" >> "$GITHUB_ENV"
+          else
+            echo "BASE_URL=https://bo-services-uat.fr.world.socgen" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run NRT
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          SERVICE: ${{ inputs.service }}
+          AUTH_TOKEN_SERVICE: ${{ inputs.auth_token_service }}
+          AUTH_TOKEN_ACCESS: ${{ inputs.auth_token_access }}
+        run: bash nrt-runner.sh

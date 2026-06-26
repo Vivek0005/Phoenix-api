@@ -1,0 +1,103 @@
+{
+  "description": "Accounts API - multiple query-parameter scenarios across all validation modes",
+  "method": "GET",
+  "api_endpoint": "/contract-service/api/v1/accounts",
+  "test_suite": [
+    {
+      "test_name": "rootOnly",
+      "description": "[success] Fetch accounts by root - required fields exist",
+      "request_params": "root=70411176",
+      "request_payload": "",
+      "expected_status": 200,
+      "expected_response": {},
+      "expected_response_file": "",
+      "validation_config": {
+        "mode": "EXISTS",
+        "fields": ["totalElements", "elements", ".elements[0].iban"]
+      }
+    },
+    {
+      "test_name": "firstElementStructure",
+      "description": "[success] Every returned account has the required fields populated",
+      "request_params": "root=70411176",
+      "request_payload": "",
+      "expected_status": 200,
+      "expected_response": {},
+      "expected_response_file": "",
+      "validation_config": {
+        "mode": "EXISTS",
+        "fields": [
+          ".elements[].iban",
+          ".elements[].accountNumber",
+          ".elements[].currency",
+          ".elements[].status"
+        ]
+      }
+    },
+    {
+      "test_name": "ibanLookup",
+      "description": "[success] A specific IBAN is present somewhere in the response",
+      "request_params": "iban=LU040614111762600EUR",
+      "request_payload": "",
+      "expected_status": 200,
+      "expected_response": { "iban": "LU040614111762600EUR" },
+      "expected_response_file": "",
+      "validation_config": {
+        "mode": "CONTAINS",
+        "fields": []
+      }
+    },
+    {
+      "test_name": "currencyAndStatusTogether",
+      "description": "[success] An EUR account that is OPEN exists (same object)",
+      "request_params": "root=70411176",
+      "request_payload": "",
+      "expected_status": 200,
+      "expected_response": { "currency": "EUR", "status": "OPEN" },
+      "expected_response_file": "",
+      "validation_config": {
+        "mode": "CONTAINS",
+        "fields": []
+      }
+    },
+    {
+      "test_name": "ignoreDynamicFields",
+      "description": "[success] Full structure matches once id/creationDate are ignored",
+      "request_params": "root=70411176",
+      "request_payload": "",
+      "expected_status": 200,
+      "expected_response": {},
+      "expected_response_file": "expected/accounts/rootOnly_stable.json",
+      "validation_config": {
+        "mode": "IGNORE",
+        "excluded_fields": [".elements[].id", ".elements[].creationDate"]
+      }
+    },
+    {
+      "test_name": "exactFromFile",
+      "description": "[success] Response matches the captured snapshot exactly",
+      "request_params": "root=70411176",
+      "request_payload": "",
+      "expected_status": 200,
+      "expected_response": {},
+      "expected_response_file": "expected/accounts/rootOnly_full.json",
+      "validation_config": {
+        "mode": "EXACT",
+        "fields": []
+      }
+    },
+    {
+      "test_name": "invalidRoot",
+      "description": "[failure] Invalid root returns 400 (status-only check)",
+      "request_params": "root=-1",
+      "request_payload": "",
+      "expected_status": 400,
+      "expected_response": {},
+      "expected_response_file": "",
+      "validation_config": {
+        "mode": "CONTAINS",
+        "fields": []
+      }
+    }
+  ]
+}

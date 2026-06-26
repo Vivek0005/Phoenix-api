@@ -1,0 +1,19 @@
+{
+  "elements": [
+    {
+      "accountNumber": "70411176",
+      "activeFlag": true,
+      "currency": "EUR",
+      "iban": "LU040614111762600EUR",
+      "status": "OPEN"
+    },
+    {
+      "accountNumber": "70411177",
+      "activeFlag": true,
+      "currency": "USD",
+      "iban": "LU040614111762600USD",
+      "status": "OPEN"
+    }
+  ],
+  "totalElements": 2
+}
